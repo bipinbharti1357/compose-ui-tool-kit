@@ -1,0 +1,48 @@
+/build
+# Gradle
+.gradle/
+build/
+!gradle-wrapper.jar
+.gradle/
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# Kotlin
+.kotlin/
+.kotlin/sessions
+kotlin/compileDebugKotlin
+*.salive
+
+# KSP / Data Binding / Generated sources
+ksp/
+generated/
+generated/**
+source/buildConfig/
+source/buildConfig/**
+**/data_binding_base_class_source_out/
+**/databinding/
+
+# Paymentsheet specific generated / transformed files
+JoyrideV3.paymentsheet
+JoyrideV3.paymentsheet.main
+../../../paymentsheet/build/generated
+JoyrideV3.stripecardscan-tflite
+build/.transforms/
+.transforms/
+transformed/
+**/results.bin
+
+# Logs / Temp
+outputs/logs/
+tmp/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

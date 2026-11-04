@@ -1,0 +1,17 @@
+# Android Studio / IntelliJ
+.idea/
+*.iml
+
+# Gradle
+.gradle/
+build/
+
+# Kotlin compiler cache
+.kotlin/
+
+# Local SDK path (machine-specific)
+local.properties
+
+# OS files
+.DS_Store
+Thumbs.db

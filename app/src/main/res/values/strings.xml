@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Compose Toolbox</string>
+    <string name="legacy_title">Legacy XML screen</string>
+    <string name="legacy_description">This header is a classic Android TextView inflated from res/layout/activity_legacy.xml. The card below is Jetpack Compose, embedded with ComposeView.</string>
+</resources>
