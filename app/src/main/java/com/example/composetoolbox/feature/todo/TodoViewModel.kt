@@ -69,11 +69,37 @@ val Todo.isClearable: Boolean get() = !repeatDaily && status == TaskStatus.DONE
 
 val TodoTags = listOf("Work", "Home", "Shopping", "Health", "Study", "Urgent")
 
-class TodoViewModel : ViewModel() {
-    private var nextId = 100L
+/** Where todos are persisted (the app uses a Room table; tests pass none and stay in memory). */
+interface TodoStore {
+    suspend fun load(): List<Todo>
+    suspend fun save(todos: List<Todo>)
+}
 
-    private val _todos = MutableStateFlow(sampleTodos())
+/**
+ * Starts with no tasks; [initial] lets tests seed the list (see [sampleTodos]).
+ * With a [store], saved todos are loaded on creation and every change is written back.
+ */
+class TodoViewModel(
+    initial: List<Todo> = emptyList(),
+    private val store: TodoStore? = null,
+) : ViewModel() {
+    private var lastId = initial.maxOfOrNull { it.id } ?: 0L
+
+    /** Time-based so ids never clash with rows already in the database. */
+    private fun newId(): Long = maxOf(System.currentTimeMillis(), lastId + 1).also { lastId = it }
+
+    private val _todos = MutableStateFlow(initial)
     val todos: StateFlow<List<Todo>> = _todos.asStateFlow()
+
+    init {
+        if (store != null) viewModelScope.launch {
+            val saved = store.load()
+            // Keep anything added while loading; saved rows fill in the rest.
+            _todos.update { current -> current + saved.filter { s -> current.none { it.id == s.id } } }
+            // StateFlow is conflated, so rapid edits collapse into one write.
+            _todos.collect { store.save(it) }
+        }
+    }
 
     private val query = MutableStateFlow("")
 
@@ -101,7 +127,7 @@ class TodoViewModel : ViewModel() {
         date: LocalDate = LocalDate.now(),
         repeatDaily: Boolean = false,
     ) {
-        val todo = Todo(nextId++, title.trim(), notes.trim(), priority, tags, reminder, date, repeatDaily)
+        val todo = Todo(newId(), title.trim(), notes.trim(), priority, tags, reminder, date, repeatDaily)
         _todos.update { listOf(todo) + it }
     }
 
@@ -146,28 +172,30 @@ class TodoViewModel : ViewModel() {
         }
     }
 
-    private fun sampleTodos(): List<Todo> {
-        val now = System.currentTimeMillis()
-        val hour = 3_600_000L
-        val today = LocalDate.now()
-        return listOf(
-            Todo(1, "Prepare sprint demo", "Slides + live build", Priority.HIGH, setOf("Work", "Urgent"), reminder = true, date = today, status = TaskStatus.IN_PROGRESS, createdAt = now - hour),
-            Todo(2, "Buy vegetables and milk", "", Priority.MEDIUM, setOf("Shopping", "Home"), date = today, createdAt = now - 2 * hour),
-            Todo(
-                3, "30 min evening walk", "", Priority.LOW, setOf("Health"),
-                date = today.minusDays(3), repeatDaily = true,
-                dailyStatus = mapOf(today.minusDays(3) to TaskStatus.DONE, today.minusDays(2) to TaskStatus.DONE, today to TaskStatus.DONE),
-                createdAt = now - 3 * hour,
-            ),
-            Todo(4, "Finish Compose state hoisting chapter", "Then try LazyColumn", Priority.MEDIUM, setOf("Study"), date = today.plusDays(1), createdAt = now - 4 * hour),
-            Todo(5, "Pay electricity bill", "", Priority.HIGH, setOf("Home"), reminder = true, date = today.plusDays(3), createdAt = now - 5 * hour),
-            Todo(6, "Reply to client email", "", Priority.MEDIUM, setOf("Work"), date = today.minusDays(1), status = TaskStatus.DONE, createdAt = now - 6 * hour),
-            Todo(
-                7, "Drink 8 glasses of water", "", Priority.LOW, setOf("Health"),
-                date = today.minusDays(3), repeatDaily = true,
-                dailyStatus = mapOf(today.minusDays(1) to TaskStatus.DONE, today to TaskStatus.IN_PROGRESS),
-                createdAt = now - 7 * hour,
-            ),
-        )
-    }
+}
+
+/** Demo data for tests only — the app itself starts empty. */
+internal fun sampleTodos(): List<Todo> {
+    val now = System.currentTimeMillis()
+    val hour = 3_600_000L
+    val today = LocalDate.now()
+    return listOf(
+        Todo(1, "Prepare sprint demo", "Slides + live build", Priority.HIGH, setOf("Work", "Urgent"), reminder = true, date = today, status = TaskStatus.IN_PROGRESS, createdAt = now - hour),
+        Todo(2, "Buy vegetables and milk", "", Priority.MEDIUM, setOf("Shopping", "Home"), date = today, createdAt = now - 2 * hour),
+        Todo(
+            3, "30 min evening walk", "", Priority.LOW, setOf("Health"),
+            date = today.minusDays(3), repeatDaily = true,
+            dailyStatus = mapOf(today.minusDays(3) to TaskStatus.DONE, today.minusDays(2) to TaskStatus.DONE, today to TaskStatus.DONE),
+            createdAt = now - 3 * hour,
+        ),
+        Todo(4, "Finish Compose state hoisting chapter", "Then try LazyColumn", Priority.MEDIUM, setOf("Study"), date = today.plusDays(1), createdAt = now - 4 * hour),
+        Todo(5, "Pay electricity bill", "", Priority.HIGH, setOf("Home"), reminder = true, date = today.plusDays(3), createdAt = now - 5 * hour),
+        Todo(6, "Reply to client email", "", Priority.MEDIUM, setOf("Work"), date = today.minusDays(1), status = TaskStatus.DONE, createdAt = now - 6 * hour),
+        Todo(
+            7, "Drink 8 glasses of water", "", Priority.LOW, setOf("Health"),
+            date = today.minusDays(3), repeatDaily = true,
+            dailyStatus = mapOf(today.minusDays(1) to TaskStatus.DONE, today to TaskStatus.IN_PROGRESS),
+            createdAt = now - 7 * hour,
+        ),
+    )
 }

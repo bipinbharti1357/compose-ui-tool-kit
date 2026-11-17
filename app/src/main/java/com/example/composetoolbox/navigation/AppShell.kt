@@ -28,6 +28,12 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.composetoolbox.LegacyActivity
 import com.example.composetoolbox.R
+import com.example.composetoolbox.data.AppDatabase
+import com.example.composetoolbox.data.RoomChallengeStore
+import com.example.composetoolbox.data.RoomExpenseStore
+import com.example.composetoolbox.data.RoomTodoStore
+import com.example.composetoolbox.feature.challenge.ChallengeScreen
+import com.example.composetoolbox.feature.challenge.ChallengeViewModel
 import com.example.composetoolbox.feature.expense.ExpenseScreen
 import com.example.composetoolbox.feature.expense.ExpenseViewModel
 import com.example.composetoolbox.feature.home.HomeScreen
@@ -46,6 +52,7 @@ object Routes {
     const val TODO = "todo"
     const val EXPENSE = "expense"
     const val PARKING = "parking"
+    const val CHALLENGE = "challenge"
     const val SETTINGS = "settings"
 }
 
@@ -54,6 +61,7 @@ enum class TopDestination(val route: String, val label: String, val icon: ImageV
     Todo(Routes.TODO, "Todo", Icons.Filled.Checklist),
     Expense(Routes.EXPENSE, "Expenses", Icons.Filled.AccountBalanceWallet),
     Parking(Routes.PARKING, "Parking", Icons.Filled.LocalParking),
+    Challenge(Routes.CHALLENGE, "75 Hard", Icons.Filled.LocalFireDepartment),
 }
 
 /**
@@ -66,12 +74,16 @@ enum class TopDestination(val route: String, val label: String, val icon: ImageV
 fun AppRoot(settingsVm: SettingsViewModel) {
     val navController = rememberNavController()
     // Activity-scoped ViewModels so Home can summarise all three features
-    val todoVm: TodoViewModel = viewModel()
-    val expenseVm: ExpenseViewModel = viewModel()
+    // Todo, Expense and 75 Hard are saved in the Room database (separate tables per feature)
+    val db = AppDatabase.get(LocalContext.current)
+    val todoVm: TodoViewModel = viewModel { TodoViewModel(store = RoomTodoStore(db.todoDao())) }
+    val expenseVm: ExpenseViewModel = viewModel { ExpenseViewModel(store = RoomExpenseStore(db.expenseDao())) }
     val parkingVm: ParkingViewModel = viewModel()
+    val challengeVm: ChallengeViewModel = viewModel { ChallengeViewModel(store = RoomChallengeStore(db.challengeDao())) }
 
     val todos by todoVm.todos.collectAsStateWithLifecycle()
     val parking by parkingVm.state.collectAsStateWithLifecycle()
+    val challenge by challengeVm.state.collectAsStateWithLifecycle()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
@@ -81,6 +93,7 @@ fun AppRoot(settingsVm: SettingsViewModel) {
     val badges = mapOf(
         TopDestination.Todo to todos.count { !it.done },
         TopDestination.Parking to parking.active.size,
+        TopDestination.Challenge to challenge.todayRemaining,
     )
 
     val navigateTo: (String) -> Unit = remember(navController) {
@@ -96,7 +109,7 @@ fun AppRoot(settingsVm: SettingsViewModel) {
     // movableContentOf keeps the NavHost (and its state) alive when the layout switches shells
     val navHost = remember(navController) {
         movableContentOf { modifier: Modifier ->
-            AppNavHost(navController, todoVm, expenseVm, parkingVm, settingsVm, navigateTo, modifier)
+            AppNavHost(navController, todoVm, expenseVm, parkingVm, challengeVm, settingsVm, navigateTo, modifier)
         }
     }
 
@@ -192,6 +205,7 @@ private fun AppNavHost(
     todoVm: TodoViewModel,
     expenseVm: ExpenseViewModel,
     parkingVm: ParkingViewModel,
+    challengeVm: ChallengeViewModel,
     settingsVm: SettingsViewModel,
     navigateTo: (String) -> Unit,
     modifier: Modifier,
@@ -207,6 +221,7 @@ private fun AppNavHost(
         composable(Routes.TODO) { TodoScreen(todoVm) }
         composable(Routes.EXPENSE) { ExpenseScreen(expenseVm) }
         composable(Routes.PARKING) { ParkingScreen(parkingVm) }
+        composable(Routes.CHALLENGE) { ChallengeScreen(challengeVm) }
         composable(Routes.SETTINGS) { SettingsScreen(settingsVm, onBack = { navController.popBackStack() }) }
     }
 }

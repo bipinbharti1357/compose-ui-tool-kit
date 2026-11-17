@@ -5,6 +5,9 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,17 +33,54 @@ data class Expense(
     val date: LocalDate,
 )
 
-class ExpenseViewModel : ViewModel() {
-    private var nextId = 1_000L
+const val DEFAULT_BUDGET = 25_000f
 
-    private val _expenses = MutableStateFlow(sampleExpenses())
+/** Where expenses and the budget are persisted (the app uses Room tables; tests pass none and stay in memory). */
+interface ExpenseStore {
+    suspend fun loadExpenses(): List<Expense>
+    suspend fun saveExpenses(expenses: List<Expense>)
+    /** Null when the user has never changed the budget. */
+    suspend fun loadBudget(): Float?
+    suspend fun saveBudget(budget: Float)
+}
+
+/**
+ * Starts with no expenses; [initial] lets tests seed the list (see [sampleExpenses]).
+ * With a [store], saved data is loaded on creation and every change is written back.
+ */
+class ExpenseViewModel(
+    initial: List<Expense> = emptyList(),
+    private val store: ExpenseStore? = null,
+) : ViewModel() {
+    private var lastId = initial.maxOfOrNull { it.id } ?: 0L
+
+    /** Time-based so ids never clash with rows already in the database. */
+    private fun newId(): Long = maxOf(System.currentTimeMillis(), lastId + 1).also { lastId = it }
+
+    private val _expenses = MutableStateFlow(initial)
     val expenses: StateFlow<List<Expense>> = _expenses.asStateFlow()
 
-    private val _budget = MutableStateFlow(25_000f)
+    private val _budget = MutableStateFlow(DEFAULT_BUDGET)
     val budget: StateFlow<Float> = _budget.asStateFlow()
 
+    init {
+        if (store != null) {
+            viewModelScope.launch {
+                val saved = store.loadExpenses()
+                // Keep anything added while loading; saved rows fill in the rest.
+                _expenses.update { current -> current + saved.filter { s -> current.none { it.id == s.id } } }
+                _expenses.collect { store.saveExpenses(it) }
+            }
+            viewModelScope.launch {
+                store.loadBudget()?.let { saved -> _budget.compareAndSet(DEFAULT_BUDGET, saved) }
+                // Skip the initial value so an untouched default isn't written.
+                _budget.drop(1).collect { store.saveBudget(it) }
+            }
+        }
+    }
+
     fun add(amount: Double, category: ExpenseCategory, note: String, date: LocalDate) {
-        _expenses.update { listOf(Expense(nextId++, amount, category, note, date)) + it }
+        _expenses.update { listOf(Expense(newId(), amount, category, note, date)) + it }
     }
 
     fun delete(expense: Expense) {
@@ -55,20 +95,22 @@ class ExpenseViewModel : ViewModel() {
         _budget.value = value
     }
 
-    private fun sampleExpenses(): List<Expense> {
-        val today = LocalDate.now()
-        fun daysAgo(n: Long) = today.minusDays(n)
-        return listOf(
-            Expense(1, 450.0, ExpenseCategory.FOOD, "Lunch with team", daysAgo(0)),
-            Expense(2, 120.0, ExpenseCategory.TRANSPORT, "Auto ride", daysAgo(0)),
-            Expense(3, 2_499.0, ExpenseCategory.SHOPPING, "Running shoes", daysAgo(1)),
-            Expense(4, 1_850.5, ExpenseCategory.BILLS, "Electricity", daysAgo(2)),
-            Expense(5, 640.0, ExpenseCategory.HEALTH, "Pharmacy", daysAgo(3)),
-            Expense(6, 799.0, ExpenseCategory.FUN, "Movie night", daysAgo(4)),
-            Expense(7, 5_600.0, ExpenseCategory.TRAVEL, "Train tickets", daysAgo(6)),
-            Expense(8, 310.0, ExpenseCategory.FOOD, "Groceries", daysAgo(7)),
-            Expense(9, 999.0, ExpenseCategory.BILLS, "Mobile + internet", daysAgo(9)),
-            Expense(10, 260.0, ExpenseCategory.OTHER, "Stationery", daysAgo(12)),
-        )
-    }
+}
+
+/** Demo data for tests only — the app itself starts empty. */
+internal fun sampleExpenses(): List<Expense> {
+    val today = LocalDate.now()
+    fun daysAgo(n: Long) = today.minusDays(n)
+    return listOf(
+        Expense(1, 450.0, ExpenseCategory.FOOD, "Lunch with team", daysAgo(0)),
+        Expense(2, 120.0, ExpenseCategory.TRANSPORT, "Auto ride", daysAgo(0)),
+        Expense(3, 2_499.0, ExpenseCategory.SHOPPING, "Running shoes", daysAgo(1)),
+        Expense(4, 1_850.5, ExpenseCategory.BILLS, "Electricity", daysAgo(2)),
+        Expense(5, 640.0, ExpenseCategory.HEALTH, "Pharmacy", daysAgo(3)),
+        Expense(6, 799.0, ExpenseCategory.FUN, "Movie night", daysAgo(4)),
+        Expense(7, 5_600.0, ExpenseCategory.TRAVEL, "Train tickets", daysAgo(6)),
+        Expense(8, 310.0, ExpenseCategory.FOOD, "Groceries", daysAgo(7)),
+        Expense(9, 999.0, ExpenseCategory.BILLS, "Mobile + internet", daysAgo(9)),
+        Expense(10, 260.0, ExpenseCategory.OTHER, "Stationery", daysAgo(12)),
+    )
 }
